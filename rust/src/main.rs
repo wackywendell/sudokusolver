@@ -196,6 +196,11 @@ enum PossibleLocations {
     Many,
 }
 
+pub enum Unsolveable {
+    MultipleSolutions,
+    NoSolution,
+}
+
 impl UnsolvedSudoku {
     pub fn empty() -> UnsolvedSudoku {
         return UnsolvedSudoku {
@@ -240,6 +245,18 @@ impl UnsolvedSudoku {
                 }
             }
         }
+    }
+
+    pub fn solved(&self) -> bool {
+        for r in &self.rows {
+            for c in r {
+                match c {
+                    Cell::Value(_) => continue,
+                    Cell::Possibilities(_) => return false,
+                }
+            }
+        }
+        return true;
     }
 
     fn simple_solve(&mut self) {
@@ -287,6 +304,88 @@ impl UnsolvedSudoku {
             }
         }
     }
+
+    // dynamic_solve applies the rules of simple_solve, and then alternates a "guess and check" expansion approach with application of the simple_solve rules to either find a single solution or return no solution.
+    pub fn dynamic_solve(&mut self) -> Result<Sudoku, Unsolveable> {
+        self.simple_solve();
+        if self.solved() {
+            if self.valid() {
+                return Ok((self as &UnsolvedSudoku).into());
+            }
+            return Err(Unsolveable::NoSolution);
+        };
+
+        let mut to_expand: Option<(u8, u8, collections::BTreeSet<u8>)> = None;
+        for (rix, r) in self.rows.iter().enumerate() {
+            for (cix, c) in r.iter().enumerate() {
+                let ps = match (c, &to_expand) {
+                    (&Cell::Value(_), _) => continue,
+                    (&Cell::Possibilities(ref ps), None) => ps,
+                    (&Cell::Possibilities(ref ps), Some((_, _, ref other_ps)))
+                        if ps.len() < other_ps.len() =>
+                    {
+                        ps
+                    }
+                    (&Cell::Possibilities(_), Some(_)) => continue,
+                };
+                to_expand = Some(((rix + 1) as u8, (cix + 1) as u8, ps.clone()));
+            }
+        }
+
+        let (rix, cix, ps) = match to_expand {
+            None => return Ok((self as &UnsolvedSudoku).into()),
+            Some(v) => v,
+        };
+
+        let mut found = None;
+        for p in ps {
+            let mut u2 = self.clone();
+            u2.set(rix, cix, p);
+            let solved = match u2.dynamic_solve() {
+                Err(Unsolveable::MultipleSolutions) => return Err(Unsolveable::MultipleSolutions),
+                Err(Unsolveable::NoSolution) => continue,
+                Ok(s) => s,
+            };
+            found = match found {
+                None => Some(solved),
+                Some(_) => return Err(Unsolveable::MultipleSolutions),
+            }
+        }
+
+        match found {
+            None => Err(Unsolveable::NoSolution),
+            Some(s) => Ok(s),
+        }
+    }
+
+    pub fn valid(&self) -> bool {
+        for ix in 1..10 {
+            let subarrays = &[
+                Box::new(Row { index: ix }) as Box<SubArray>,
+                Box::new(Column { index: ix }) as Box<SubArray>,
+                Box::new(Square { index: ix }) as Box<SubArray>,
+            ];
+
+            for s in subarrays {
+                let mut seen = collections::BTreeSet::new();
+                for j in 1..10 {
+                    let (rix, cix) = s.matrix_index(j);
+                    let v = match self.get(rix, cix) {
+                        Cell::Value(n) => n,
+                        _ => continue,
+                    };
+                    if !seen.insert(v) {
+                        // insert returns false if the item is already in the set.
+                        // If this happens, that means we have the same value twice in this subarray.
+                        // That's no good.
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
 }
 
 impl From<Sudoku> for UnsolvedSudoku {
@@ -304,7 +403,7 @@ impl From<Sudoku> for UnsolvedSudoku {
     }
 }
 
-impl Into<Sudoku> for UnsolvedSudoku {
+impl Into<Sudoku> for &UnsolvedSudoku {
     fn into(self) -> Sudoku {
         let mut s = Sudoku::empty();
         for (rix, row) in self.rows.iter().enumerate() {
@@ -336,10 +435,25 @@ fn main() -> Result<(), io::Error> {
 
     let s = Sudoku::from_reader(f)?;
     let mut u: UnsolvedSudoku = s.into();
-    u.simple_solve();
-    let solved: Sudoku = u.into();
+    // u.simple_solve();
+    // let solved: Sudoku = (&u).into();
 
-    println!("{}", solved);
+    match u.dynamic_solve() {
+        Ok(s) => println!("{}", s),
+        Err(Unsolveable::MultipleSolutions) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Multiple solutions found.",
+            ));
+        }
+        Err(Unsolveable::NoSolution) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "No solution found.",
+            ));
+        }
+    }
+
     return Ok(());
 }
 
