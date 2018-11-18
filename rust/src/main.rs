@@ -1,10 +1,82 @@
+use std::collections;
 use std::env;
+use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
 
 struct Sudoku {
     rows: [[u8; 9]; 9],
+}
+
+impl fmt::Display for Sudoku {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (n, r) in self.rows.iter().enumerate() {
+            if n > 0 {
+                write!(f, "\n")?;
+            }
+            for c in r {
+                match c {
+                    0 => write!(f, "{}", " ")?,
+                    _ => write!(f, "{}", c)?,
+                }
+            }
+        }
+
+        return Ok(());
+    }
+}
+
+trait SubArray {
+    fn name() -> &'static str;
+    fn matrix_index(&self, index: usize) -> (usize, usize);
+}
+
+struct Row {
+    index: usize,
+}
+
+impl SubArray for Row {
+    fn name() -> &'static str {
+        return "R";
+    }
+
+    fn matrix_index(&self, index: usize) -> (usize, usize) {
+        return (self.index, index);
+    }
+}
+
+struct Column {
+    index: usize,
+}
+
+impl SubArray for Column {
+    fn name() -> &'static str {
+        return "C";
+    }
+
+    fn matrix_index(&self, index: usize) -> (usize, usize) {
+        return (index, self.index);
+    }
+}
+
+struct Square {
+    index: usize,
+}
+
+impl SubArray for Square {
+    fn name() -> &'static str {
+        return "S";
+    }
+
+    fn matrix_index(&self, index: usize) -> (usize, usize) {
+        let ii = (self.index - 1) % 3;
+        let ij = (self.index - 1) / 3;
+        let ji = (index - 1) % 3;
+        let jj = (index - 1) / 3;
+
+        return (ii * 3 + ji + 1, ij * 3 + jj + 1);
+    }
 }
 
 impl Sudoku {
@@ -85,13 +157,6 @@ fn main() -> Result<(), io::Error> {
 
     let s = Sudoku::from_reader(f)?;
 
-    for row in s.rows.iter() {
-        println!(
-            "{}{}{}{}{}{}{}{}{}",
-            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]
-        )
-    }
-
-    println!("{:?}", args);
+    println!("{}", s);
     return Ok(());
 }
